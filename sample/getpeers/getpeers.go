@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/MildC/dht-crawler"
+	"github.com/MildC/dht-crawler/dht"
 )
 
 func main() {

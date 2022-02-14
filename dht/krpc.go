@@ -137,7 +137,7 @@ func send(dht *DHT, addr *net.UDPAddr, data map[string]interface{}) error {
 
 // query represents the query data included queried node and query-formed data.
 type query struct {
-	node *node
+	node Node
 	data map[string]interface{}
 }
 
@@ -197,7 +197,7 @@ func (tm *transactionManager) genIndexKey(queryType, address string) string {
 
 // genIndexKeyByTrans generates an indexed key by a transaction.
 func (tm *transactionManager) genIndexKeyByTrans(trans *transaction) string {
-	return tm.genIndexKey(trans.data["q"].(string), trans.node.addr.String())
+	return tm.genIndexKey(trans.data["q"].(string), trans.node.Address().String())
 }
 
 // insert adds a transaction to transactionManager.
@@ -263,7 +263,7 @@ func (tm *transactionManager) filterOne(
 	transID string, addr *net.UDPAddr) *transaction {
 
 	trans := tm.getByTransID(transID)
-	if trans == nil || trans.node.addr.String() != addr.String() {
+	if trans == nil || trans.node.Address().String() != addr.String() {
 		return nil
 	}
 
@@ -282,7 +282,7 @@ func (tm *transactionManager) query(q *query, try int) {
 
 	success := false
 	for i := 0; i < try; i++ {
-		if err := send(tm.dht, q.node.addr, q.data); err != nil {
+		if err := send(tm.dht, q.node.Address(), q.data); err != nil {
 			break
 		}
 
@@ -294,9 +294,9 @@ func (tm *transactionManager) query(q *query, try int) {
 		}
 	}
 
-	if !success && q.node.id != nil {
-		tm.dht.blackList.insert(q.node.addr.IP.String(), q.node.addr.Port)
-		tm.dht.routingTable.RemoveByAddr(q.node.addr.String())
+	if !success && q.node.ID() != nil {
+		tm.dht.blackList.insert(q.node.Address().IP.String(), q.node.Address().Port)
+		tm.dht.routingTable.RemoveByAddr(q.node.Address().String())
 	}
 }
 
@@ -309,12 +309,12 @@ func (tm *transactionManager) run() {
 
 // sendQuery send query-formed data to the chan.
 func (tm *transactionManager) sendQuery(
-	no *node, queryType string, a map[string]interface{}) {
+	no Node, queryType string, a map[string]interface{}) {
 
 	// If the target is self, then stop.
-	if no.id != nil && no.id.RawString() == tm.dht.node.id.RawString() ||
-		tm.getByIndex(tm.genIndexKey(queryType, no.addr.String())) != nil ||
-		tm.dht.blackList.in(no.addr.IP.String(), no.addr.Port) {
+	if no.ID() != nil && no.IDRawString() == tm.dht.node.IDRawString() ||
+		tm.getByIndex(tm.genIndexKey(queryType, no.Address().String())) != nil ||
+		tm.dht.blackList.in(no.Address().IP.String(), no.Address().Port) {
 		return
 	}
 
@@ -326,14 +326,14 @@ func (tm *transactionManager) sendQuery(
 }
 
 // ping sends ping query to the chan.
-func (tm *transactionManager) ping(no *node) {
+func (tm *transactionManager) ping(no Node) {
 	tm.sendQuery(no, pingType, map[string]interface{}{
-		"id": tm.dht.id(no.id.RawString()),
+		"id": tm.dht.id(no.IDRawString()),
 	})
 }
 
 // findNode sends find_node query to the chan.
-func (tm *transactionManager) findNode(no *node, target string) {
+func (tm *transactionManager) findNode(no Node, target string) {
 	tm.sendQuery(no, findNodeType, map[string]interface{}{
 		"id":     tm.dht.id(target),
 		"target": target,
@@ -341,7 +341,7 @@ func (tm *transactionManager) findNode(no *node, target string) {
 }
 
 // getPeers sends get_peers query to the chan.
-func (tm *transactionManager) getPeers(no *node, infoHash string) {
+func (tm *transactionManager) getPeers(no Node, infoHash string) {
 	tm.sendQuery(no, getPeersType, map[string]interface{}{
 		"id":        tm.dht.id(infoHash),
 		"info_hash": infoHash,
@@ -350,10 +350,10 @@ func (tm *transactionManager) getPeers(no *node, infoHash string) {
 
 // announcePeer sends announce_peer query to the chan.
 func (tm *transactionManager) announcePeer(
-	no *node, infoHash string, impliedPort, port int, token string) {
+	no Node, infoHash string, impliedPort, port int, token string) {
 
 	tm.sendQuery(no, announcePeerType, map[string]interface{}{
-		"id":           tm.dht.id(no.id.RawString()),
+		"id":           tm.dht.id(no.IDRawString()),
 		"info_hash":    infoHash,
 		"implied_port": impliedPort,
 		"port":         port,
@@ -439,7 +439,7 @@ func handleRequest(dht *DHT, addr *net.UDPAddr,
 
 	id := a["id"].(string)
 
-	if id == dht.node.id.RawString() {
+	if id == dht.node.IDRawString() {
 		return
 	}
 
@@ -449,7 +449,7 @@ func handleRequest(dht *DHT, addr *net.UDPAddr,
 	}
 
 	if no, ok := dht.routingTable.GetNodeByAddress(addr.String()); ok &&
-		no.id.RawString() != id {
+		no.IDRawString() != id {
 
 		dht.blackList.insert(addr.IP.String(), addr.Port)
 		dht.routingTable.RemoveByAddr(addr.String())
@@ -579,7 +579,7 @@ func handleRequest(dht *DHT, addr *net.UDPAddr,
 		return
 	}
 
-	no, _ := newNode(id, addr.Network(), addr.String())
+	no := NewNode(id, addr)
 	dht.routingTable.Insert(no)
 	return true
 }
@@ -601,10 +601,10 @@ func findOn(dht *DHT, r map[string]interface{}, target *bitmap,
 
 	hasNew, found := false, false
 	for i := 0; i < len(nodes)/26; i++ {
-		no, _ := newNodeFromCompactInfo(
+		no, _ := NewNodeFromCompactInfo(
 			string(nodes[i*26:(i+1)*26]), dht.Network)
 
-		if no.id.RawString() == target.RawString() {
+		if no.IDRawString() == target.RawString() {
 			found = true
 		}
 
@@ -659,16 +659,13 @@ func handleResponse(dht *DHT, addr *net.UDPAddr,
 
 	// If response's node id is not the same with the node id in the
 	// transaction, raise error.
-	if trans.node.id != nil && trans.node.id.RawString() != r["id"].(string) {
+	if trans.node.ID() != nil && trans.node.IDRawString() != r["id"].(string) {
 		dht.blackList.insert(addr.IP.String(), addr.Port)
 		dht.routingTable.RemoveByAddr(addr.String())
 		return
 	}
 
-	node, err := newNode(id, addr.Network(), addr.String())
-	if err != nil {
-		return
-	}
+	node := NewNode(id, addr)
 
 	switch q {
 	case pingType:

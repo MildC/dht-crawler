@@ -2,7 +2,6 @@ package dht
 
 import (
 	"container/heap"
-	"errors"
 	"net"
 	"strings"
 	"sync"
@@ -11,56 +10,6 @@ import (
 
 // maxPrefixLength is the length of DHT node.
 const maxPrefixLength = 160
-
-// node represents a DHT node.
-type node struct {
-	id             *bitmap
-	addr           *net.UDPAddr
-	lastActiveTime time.Time
-}
-
-// newNode returns a node pointer.
-func newNode(id, network, address string) (*node, error) {
-	if len(id) != 20 {
-		return nil, errors.New("node id should be a 20-length string")
-	}
-
-	addr, err := net.ResolveUDPAddr(network, address)
-	if err != nil {
-		return nil, err
-	}
-
-	return &node{newBitmapFromString(id), addr, time.Now()}, nil
-}
-
-// newNodeFromCompactInfo parses compactNodeInfo and returns a node pointer.
-func newNodeFromCompactInfo(
-	compactNodeInfo string, network string) (*node, error) {
-
-	if len(compactNodeInfo) != 26 {
-		return nil, errors.New("compactNodeInfo should be a 26-length string")
-	}
-
-	id := compactNodeInfo[:20]
-	ip, port, _ := decodeCompactIPPortInfo(compactNodeInfo[20:])
-
-	return newNode(id, network, genAddress(ip.String(), port))
-}
-
-// CompactIPPortInfo returns "Compact IP-address/port info".
-// See http://www.bittorrent.org/beps/bep_0005.html.
-func (node *node) CompactIPPortInfo() string {
-	info, _ := encodeCompactIPPortInfo(node.addr.IP, node.addr.Port)
-	return info
-}
-
-// CompactNodeInfo returns "Compact node info".
-// See http://www.bittorrent.org/beps/bep_0005.html.
-func (node *node) CompactNodeInfo() string {
-	return strings.Join([]string{
-		node.id.RawString(), node.CompactIPPortInfo(),
-	}, "")
-}
 
 // Peer represents a peer contact.
 type Peer struct {
@@ -193,10 +142,10 @@ func (bucket *kbucket) UpdateTimestamp() {
 
 // Insert inserts node to the bucket. It returns whether the node is new in
 // the bucket.
-func (bucket *kbucket) Insert(no *node) bool {
-	isNew := !bucket.nodes.HasKey(no.id.RawString())
+func (bucket *kbucket) Insert(no Node) bool {
+	isNew := !bucket.nodes.HasKey(no.IDRawString())
 
-	bucket.nodes.Push(no.id.RawString(), no)
+	bucket.nodes.Push(no.IDRawString(), no)
 	bucket.UpdateTimestamp()
 
 	return isNew
@@ -204,21 +153,19 @@ func (bucket *kbucket) Insert(no *node) bool {
 
 // Replace removes node, then put bucket.candidates.Back() to the right
 // place of bucket.nodes.
-func (bucket *kbucket) Replace(no *node) {
-	bucket.nodes.Delete(no.id.RawString())
+func (bucket *kbucket) Replace(no Node) {
+	bucket.nodes.Delete(no.IDRawString())
 	bucket.UpdateTimestamp()
 
 	if bucket.candidates.Len() == 0 {
 		return
 	}
 
-	no = bucket.candidates.Remove(bucket.candidates.Back()).(*node)
+	no = bucket.candidates.Remove(bucket.candidates.Back()).(Node)
 
 	inserted := false
 	for e := range bucket.nodes.Iter() {
-		if e.Value.(*node).lastActiveTime.After(
-			no.lastActiveTime) && !inserted {
-
+		if e.Value.(Node).LastActiveTime().After(no.LastActiveTime()) && !inserted {
 			bucket.nodes.InsertBefore(no, e)
 			inserted = true
 		}
@@ -232,8 +179,8 @@ func (bucket *kbucket) Replace(no *node) {
 // Fresh pings the expired nodes in the bucket.
 func (bucket *kbucket) Fresh(dht *DHT) {
 	for e := range bucket.nodes.Iter() {
-		no := e.Value.(*node)
-		if time.Since(no.lastActiveTime) > dht.NodeExpriedAfter {
+		no := e.Value.(Node)
+		if time.Since(no.LastActiveTime()) > dht.NodeExpriedAfter {
 			dht.transactionManager.ping(no)
 		}
 	}
@@ -309,13 +256,13 @@ func (tableNode *routingTableNode) Split() {
 	tableNode.Unlock()
 
 	for e := range tableNode.KBucket().nodes.Iter() {
-		nd := e.Value.(*node)
-		tableNode.Child(nd.id.Bit(prefixLen)).KBucket().nodes.PushBack(nd)
+		nd := e.Value.(Node)
+		tableNode.Child(nd.ID().Bit(prefixLen)).KBucket().nodes.PushBack(nd)
 	}
 
 	for e := range tableNode.KBucket().candidates.Iter() {
-		nd := e.Value.(*node)
-		tableNode.Child(nd.id.Bit(prefixLen)).KBucket().candidates.PushBack(nd)
+		nd := e.Value.(Node)
+		tableNode.Child(nd.ID().Bit(prefixLen)).KBucket().candidates.PushBack(nd)
 	}
 
 	for i := 0; i < 2; i++ {
@@ -354,11 +301,11 @@ func newRoutingTable(k int, dht *DHT) *routingTable {
 
 // Insert adds a node to routing table. It returns whether the node is new
 // in the routingtable.
-func (rt *routingTable) Insert(nd *node) bool {
+func (rt *routingTable) Insert(nd Node) bool {
 	rt.Lock()
 	defer rt.Unlock()
 
-	if rt.dht.blackList.in(nd.addr.IP.String(), nd.addr.Port) ||
+	if rt.dht.blackList.in(nd.Address().IP.String(), nd.Address().Port) ||
 		rt.cachedNodes.Len() >= rt.dht.MaxNodes {
 		return false
 	}
@@ -370,22 +317,22 @@ func (rt *routingTable) Insert(nd *node) bool {
 	root := rt.root
 
 	for prefixLen := 1; prefixLen <= maxPrefixLength; prefixLen++ {
-		next = root.Child(nd.id.Bit(prefixLen - 1))
+		next = root.Child(nd.ID().Bit(prefixLen - 1))
 
 		if next != nil {
 			// If next is not the leaf.
 			root = next
 		} else if root.KBucket().nodes.Len() < rt.k ||
-			root.KBucket().nodes.HasKey(nd.id.RawString()) {
+			root.KBucket().nodes.HasKey(nd.ID().RawString()) {
 
 			bucket = root.KBucket()
 			isNew := bucket.Insert(nd)
 
-			rt.cachedNodes.Set(nd.addr.String(), nd)
+			rt.cachedNodes.Set(nd.Address().String(), nd)
 			rt.cachedKBuckets.Push(bucket.prefix.String(), bucket)
 
 			return isNew
-		} else if root.KBucket().prefix.Compare(nd.id, prefixLen-1) == 0 {
+		} else if root.KBucket().prefix.Compare(nd.ID(), prefixLen-1) == 0 {
 			// If node has the same prefix with bucket, split it.
 
 			root.Split()
@@ -398,7 +345,7 @@ func (rt *routingTable) Insert(nd *node) bool {
 				rt.cachedKBuckets.Push(bucket.prefix.String(), bucket)
 			}
 
-			root = root.Child(nd.id.Bit(prefixLen - 1))
+			root = root.Child(nd.ID().Bit(prefixLen - 1))
 		} else {
 			// Finally, store node as a candidate and fresh the bucket.
 			root.KBucket().candidates.PushBack(nd)
@@ -415,19 +362,19 @@ func (rt *routingTable) Insert(nd *node) bool {
 }
 
 // GetNeighbors returns the size-length nodes closest to id.
-func (rt *routingTable) GetNeighbors(id *bitmap, size int) []*node {
+func (rt *routingTable) GetNeighbors(id *bitmap, size int) []Node {
 	rt.RLock()
 	nodes := make([]interface{}, 0, rt.cachedNodes.Len())
 	for item := range rt.cachedNodes.Iter() {
-		nodes = append(nodes, item.val.(*node))
+		nodes = append(nodes, item.val.(*Node))
 	}
 	rt.RUnlock()
 
 	neighbors := getTopK(nodes, id, size)
-	result := make([]*node, len(neighbors))
+	result := make([]Node, len(neighbors))
 
 	for i, nd := range neighbors {
-		result[i] = nd.(*node)
+		result[i] = nd.(Node)
 	}
 	return result
 }
@@ -446,8 +393,7 @@ func (rt *routingTable) GetNeighborCompactInfos(id *bitmap, size int) []string {
 
 // GetNodeKBucktById returns node whose id is `id` and the bucket it
 // belongs to.
-func (rt *routingTable) GetNodeKBucktByID(id *bitmap) (
-	nd *node, bucket *kbucket) {
+func (rt *routingTable) GetNodeKBucktByID(id *bitmap) (nd Node, bucket *kbucket) {
 
 	rt.RLock()
 	defer rt.RUnlock()
@@ -462,7 +408,7 @@ func (rt *routingTable) GetNodeKBucktByID(id *bitmap) (
 			if !ok {
 				return
 			}
-			nd, bucket = v.Value.(*node), root.KBucket()
+			nd, bucket = v.Value.(Node), root.KBucket()
 			return
 		}
 		root = next
@@ -471,13 +417,13 @@ func (rt *routingTable) GetNodeKBucktByID(id *bitmap) (
 }
 
 // GetNodeByAddress finds node by address.
-func (rt *routingTable) GetNodeByAddress(address string) (no *node, ok bool) {
+func (rt *routingTable) GetNodeByAddress(address string) (no Node, ok bool) {
 	rt.RLock()
 	defer rt.RUnlock()
 
 	v, ok := rt.cachedNodes.Get(address)
 	if ok {
-		no = v.(*node)
+		no = v.(Node)
 	}
 	return
 }
@@ -486,7 +432,7 @@ func (rt *routingTable) GetNodeByAddress(address string) (no *node, ok bool) {
 func (rt *routingTable) Remove(id *bitmap) {
 	if nd, bucket := rt.GetNodeKBucktByID(id); nd != nil {
 		bucket.Replace(nd)
-		rt.cachedNodes.Delete(nd.addr.String())
+		rt.cachedNodes.Delete(nd.Address().String())
 		rt.cachedKBuckets.Push(bucket.prefix.String(), bucket)
 	}
 }
@@ -495,7 +441,7 @@ func (rt *routingTable) Remove(id *bitmap) {
 func (rt *routingTable) RemoveByAddr(address string) {
 	v, ok := rt.cachedNodes.Get(address)
 	if ok {
-		rt.Remove(v.(*node).id)
+		rt.Remove(v.(Node).ID())
 	}
 }
 
@@ -513,7 +459,7 @@ func (rt *routingTable) Fresh() {
 		i := 0
 		for e := range bucket.nodes.Iter() {
 			if i < rt.dht.RefreshNodeNum {
-				no := e.Value.(*node)
+				no := e.Value.(Node)
 				rt.dht.transactionManager.findNode(no, bucket.RandomChildID())
 				rt.clearQueue.PushBack(no)
 			}
@@ -523,7 +469,7 @@ func (rt *routingTable) Fresh() {
 
 	if rt.dht.IsCrawlMode() {
 		for e := range rt.clearQueue.Iter() {
-			rt.Remove(e.Value.(*node).id)
+			rt.Remove(e.Value.(Node).ID())
 		}
 	}
 
@@ -576,10 +522,10 @@ func getTopK(queue []interface{}, id *bitmap, k int) []interface{} {
 	topkHeap := make(topKHeap, 0, k+1)
 
 	for _, value := range queue {
-		node := value.(*node)
-		distance := id.Xor(node.id)
+		node := value.(Node)
+		distance := id.Xor(node.ID())
 		if topkHeap.Len() == k {
-			var last = topkHeap[topkHeap.Len() - 1]
+			var last = topkHeap[topkHeap.Len()-1]
 			if last.distance.Compare(distance, maxPrefixLength) == 1 {
 				item := &heapItem{
 					distance,
