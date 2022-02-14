@@ -1,0 +1,9 @@
+# github.com/elastic/elastic-transport-go/v8 v8.0.0-alpha
+## explicit; go 1.13
+github.com/elastic/elastic-transport-go/v8/elastictransport
+github.com/elastic/elastic-transport-go/v8/elastictransport/version
+# github.com/elastic/go-elasticsearch/v8 v8.0.0
+## explicit; go 1.13
+github.com/elastic/go-elasticsearch/v8
+github.com/elastic/go-elasticsearch/v8/esapi
+github.com/elastic/go-elasticsearch/v8/internal/version

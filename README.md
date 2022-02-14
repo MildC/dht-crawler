@@ -1,8 +1,10 @@
-![](https://raw.githubusercontent.com/shiyanhui/dht/master/doc/screen-shot.png)
+A fork from https://github.com/shiyanhui/dht
+
+![](https://raw.githubusercontent.com/MildC/dht-crawler/master/doc/screen-shot.png)
 
 See the video on the [Youtube](https://www.youtube.com/watch?v=AIpeQtw22kc).
 
-[中文版README](https://github.com/shiyanhui/dht/blob/master/README_CN.md)
+[中文版README](https://github.com/MildC/dht-crawler/blob/master/README_CN.md)
 
 ## Introduction
 
@@ -18,15 +20,13 @@ mode follows the BEPs, and you can use it as a standard dht server. The crawling
 mode aims to crawl as more metadata info as possiple. It doesn't follow the
 standard BEPs protocol. With the crawling mode, you can build another [BTDigg](http://btdigg.org/).
 
-[bthub.io](http://bthub.io) is a BT search engine based on the crawling mode.
-
 ## Installation
 
-    go get github.com/shiyanhui/dht
+    go get github.com/MildC/dht-crawler/dht
 
 ## Example
 
-Below is a simple spider. You can move [here](https://github.com/shiyanhui/dht/blob/master/sample)
+Below is a simple spider. You can move [here](https://github.com/MildC/dht-crawler/blob/master/sample)
 to see more samples.
 
 ```go
@@ -56,10 +56,6 @@ func main() {
 }
 ```
 
-## Download
-
-You can download the demo compiled binary file [here](https://github.com/shiyanhui/dht/files/407021/spider.zip).
-
 ## Note
 
 - The default crawl mode configure costs about 300M RAM. Set **MaxNodes**
@@ -84,4 +80,4 @@ Well, maybe there are several reasons.
 
 ## License
 
-MIT, read more [here](https://github.com/shiyanhui/dht/blob/master/LICENSE)
+MIT, read more [here](https://github.com/MildC/dht-crawler/blob/master/LICENSE)
