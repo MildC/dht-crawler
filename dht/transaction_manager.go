@@ -1,7 +1,6 @@
 package dht
 
 import (
-	"log"
 	"net"
 	"strings"
 	"sync"
@@ -11,11 +10,11 @@ import (
 // transactionManager represents the manager of transactions.
 type transactionManager struct {
 	*sync.RWMutex
-	transactions *syncedMap
-	index        *syncedMap
+	transactions *TransactionMap
+	index        *TransactionMap
 	cursor       uint64
 	maxCursor    uint64
-	queryChan    chan *query
+	queryChan    chan *Query
 	dht          *DHT
 }
 
@@ -23,10 +22,10 @@ type transactionManager struct {
 func newTransactionManager(maxCursor uint64, dht *DHT) *transactionManager {
 	return &transactionManager{
 		RWMutex:      &sync.RWMutex{},
-		transactions: newSyncedMap(),
-		index:        newSyncedMap(),
+		transactions: NewTransactionMap(),
+		index:        NewTransactionMap(),
 		maxCursor:    maxCursor,
-		queryChan:    make(chan *query, 1024),
+		queryChan:    make(chan *Query, 1024),
 		dht:          dht,
 	}
 }
@@ -40,15 +39,6 @@ func (tm *transactionManager) genTransID() string {
 	return string(int2bytes(tm.cursor))
 }
 
-// newTransaction creates a new transaction.
-func (tm *transactionManager) newTransaction(id string, q *query) *Transaction {
-	return &Transaction{
-		id:       id,
-		query:    q,
-		response: make(chan struct{}, tm.dht.Try+1),
-	}
-}
-
 // genIndexKey generates an indexed key which consists of queryType and
 // address.
 func (tm *transactionManager) genIndexKey(queryType, address string) string {
@@ -57,7 +47,7 @@ func (tm *transactionManager) genIndexKey(queryType, address string) string {
 
 // genIndexKeyByTrans generates an indexed key by a transaction.
 func (tm *transactionManager) genIndexKeyByTrans(trans *Transaction) string {
-	return tm.genIndexKey(trans.data["q"].(string), trans.node.Address().String())
+	return tm.genIndexKey(trans.Data["q"].(string), trans.Node.Address().String())
 }
 
 // insert adds a transaction to transactionManager.
@@ -65,13 +55,13 @@ func (tm *transactionManager) insert(trans *Transaction) {
 	tm.Lock()
 	defer tm.Unlock()
 
-	tm.transactions.Set(trans.id, trans)
-	tm.index.Set(tm.genIndexKeyByTrans(trans), trans)
+	tm.transactions.Store(trans.ID, trans)
+	tm.index.Store(tm.genIndexKeyByTrans(trans), trans)
 }
 
 // delete removes a transaction from transactionManager.
 func (tm *transactionManager) delete(transID string) {
-	v, ok := tm.transactions.Get(transID)
+	trans, ok := tm.transactions.GetTransaction(transID)
 	if !ok {
 		return
 	}
@@ -79,8 +69,7 @@ func (tm *transactionManager) delete(transID string) {
 	tm.Lock()
 	defer tm.Unlock()
 
-	trans := v.(*Transaction)
-	tm.transactions.Delete(trans.id)
+	tm.transactions.Delete(trans.ID)
 	tm.index.Delete(tm.genIndexKeyByTrans(trans))
 }
 
@@ -99,12 +88,8 @@ func (tm *transactionManager) transaction(
 		sm = tm.index
 	}
 
-	v, ok := sm.Get(key)
-	if !ok {
-		return nil
-	}
-
-	return v.(*Transaction)
+	trans, _ := sm.GetTransaction(key)
+	return trans
 }
 
 // getByTransID returns a transaction by transID.
@@ -123,7 +108,7 @@ func (tm *transactionManager) filterOne(
 	transID string, addr *net.UDPAddr) *Transaction {
 
 	trans := tm.getByTransID(transID)
-	if trans == nil || trans.node.Address().String() != addr.String() {
+	if trans == nil || trans.Node.Address().String() != addr.String() {
 		return nil
 	}
 
@@ -133,31 +118,31 @@ func (tm *transactionManager) filterOne(
 // query sends the query-formed data to udp and wait for the response.
 // When timeout, it will retry `try - 1` times, which means it will query
 // `try` times totally.
-func (tm *transactionManager) query(q *query, try int) {
-	log.Printf("query %v %v\n", q.node.ID(), q.data)
-	transID := q.data["t"].(string)
+func (tm *transactionManager) query(q *Query, try int) {
+	tm.dht.logger.Sugar().Debugf("query %v:%v", q.Node.Address().IP, q.Node.Address().Port)
+	transID := q.Data["t"].(string)
 	trans := tm.newTransaction(transID, q)
 
 	tm.insert(trans)
-	defer tm.delete(trans.id)
+	defer tm.delete(trans.ID)
 
 	success := false
 	for i := 0; i < try; i++ {
-		if err := send(tm.dht, q.node.Address(), q.data); err != nil {
+		if err := send(tm.dht, q.Node.Address(), q.Data); err != nil {
 			break
 		}
 
 		select {
-		case <-trans.response:
+		case <-trans.Response:
 			success = true
 			break
 		case <-time.After(time.Second * 15):
 		}
 	}
 
-	if !success && q.node.ID() != nil {
-		tm.dht.blackList.insert(q.node.Address().IP.String(), q.node.Address().Port)
-		tm.dht.routingTable.RemoveByAddr(q.node.Address().String())
+	if !success && q.Node.ID() != nil {
+		tm.dht.blackList.insert(q.Node.Address().IP.String(), q.Node.Address().Port)
+		tm.dht.routingTable.RemoveByAddr(q.Node.Address().String())
 	}
 }
 
@@ -180,9 +165,9 @@ func (tm *transactionManager) sendQuery(
 	}
 
 	data := makeQuery(tm.genTransID(), queryType, a)
-	tm.queryChan <- &query{
-		node: no,
-		data: data,
+	tm.queryChan <- &Query{
+		Node: no,
+		Data: data,
 	}
 }
 

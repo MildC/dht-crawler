@@ -134,12 +134,6 @@ func send(dht *DHT, addr *net.UDPAddr, data map[string]interface{}) error {
 	return err
 }
 
-// query represents the query data included queried node and query-formed data.
-type query struct {
-	node Node
-	data map[string]interface{}
-}
-
 // ParseKey parses the key in dict data. `t` is type of the keyed value.
 // It's one of "int", "string", "map", "list".
 func ParseKey(data map[string]interface{}, key string, t string) error {
@@ -426,8 +420,8 @@ func handleResponse(dht *DHT, addr *net.UDPAddr,
 		return
 	}
 
-	q := trans.data["q"].(string)
-	a := trans.data["a"].(map[string]interface{})
+	q := trans.Data["q"].(string)
+	a := trans.Data["a"].(map[string]interface{})
 	r := response["r"].(map[string]interface{})
 
 	if err := ParseKey(r, "id", "string"); err != nil {
@@ -438,7 +432,7 @@ func handleResponse(dht *DHT, addr *net.UDPAddr,
 
 	// If response's node id is not the same with the node id in the
 	// transaction, raise error.
-	if trans.node.ID() != nil && trans.node.IDRawString() != r["id"].(string) {
+	if trans.Node.ID() != nil && trans.Node.IDRawString() != r["id"].(string) {
 		dht.blackList.insert(addr.IP.String(), addr.Port)
 		dht.routingTable.RemoveByAddr(addr.String())
 		return
@@ -449,11 +443,11 @@ func handleResponse(dht *DHT, addr *net.UDPAddr,
 	switch q {
 	case pingType:
 	case findNodeType:
-		if trans.data["q"].(string) != findNodeType {
+		if trans.Data["q"].(string) != findNodeType {
 			return
 		}
 
-		target := trans.data["a"].(map[string]interface{})["target"].(string)
+		target := trans.Data["a"].(map[string]interface{})["target"].(string)
 		if findOn(dht, r, newBitmapFromString(target), findNodeType) != nil {
 			return
 		}
@@ -487,7 +481,7 @@ func handleResponse(dht *DHT, addr *net.UDPAddr,
 	}
 
 	// inform transManager to delete transaction.
-	trans.response <- struct{}{}
+	trans.Response <- struct{}{}
 
 	dht.blackList.delete(addr.IP.String(), addr.Port)
 	dht.routingTable.Insert(node)
@@ -510,7 +504,7 @@ func handleError(dht *DHT, addr *net.UDPAddr,
 	if trans := dht.transactionManager.filterOne(
 		response["t"].(string), addr); trans != nil {
 
-		trans.response <- struct{}{}
+		trans.Response <- struct{}{}
 	}
 
 	return true

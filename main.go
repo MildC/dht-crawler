@@ -9,7 +9,6 @@ import (
 
 	"github.com/MildC/dht-crawler/dht"
 	"github.com/MildC/dht-crawler/torrent"
-	"go.uber.org/zap"
 )
 
 func main() {
@@ -17,7 +16,7 @@ func main() {
 		http.ListenAndServe(":6060", nil)
 	}()
 
-	logger, _ := zap.NewDevelopment()
+	logger := NewConsoleLogger()
 
 	w := dht.NewWire(65536, 1024, 256)
 	go func() {
