@@ -6,12 +6,14 @@ import (
 	"time"
 
 	"github.com/MildC/dht-crawler/dht"
+	"go.uber.org/zap"
 )
 
 func main() {
-	d := dht.New(nil)
-	d.OnGetPeersResponse = func(infoHash string, peer *dht.Peer) {
-		fmt.Printf("GOT PEER: <%s:%d>\n", peer.IP, peer.Port)
+	logger, _ := zap.NewDevelopment()
+	d := dht.New(logger, nil)
+	d.OnGetPeersResponse = func(infoHash string, peer dht.Peer) {
+		fmt.Printf("GOT PEER: <%s:%d>\n", peer.IP(), peer.Port())
 	}
 
 	go func() {

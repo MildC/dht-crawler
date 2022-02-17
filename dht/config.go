@@ -40,7 +40,7 @@ type Config struct {
 	// callback when got get_peers request
 	OnGetPeers func(string, string, int)
 	// callback when receive get_peers response
-	OnGetPeersResponse func(string, *Peer)
+	OnGetPeersResponse func(string, Peer)
 	// callback when got announce_peer request
 	OnAnnouncePeer func(string, string, int)
 	// blcoked ips
@@ -65,7 +65,7 @@ func NewStandardConfig() *Config {
 		K:           8,
 		KBucketSize: 8,
 		Network:     "udp4",
-		Address:     ":6880",
+		Address:     ":6881",
 		PrimeNodes: []string{
 			"router.bittorrent.com:6881",
 			"router.utorrent.com:6881",

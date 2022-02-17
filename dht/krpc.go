@@ -2,6 +2,7 @@ package dht
 
 import (
 	"errors"
+	"log"
 	"net"
 	"strings"
 	"sync"
@@ -274,6 +275,7 @@ func (tm *transactionManager) filterOne(
 // When timeout, it will retry `try - 1` times, which means it will query
 // `try` times totally.
 func (tm *transactionManager) query(q *query, try int) {
+	log.Printf("query %v %v\n", q.node.ID(), q.data)
 	transID := q.data["t"].(string)
 	trans := tm.newTransaction(transID, q)
 
@@ -564,7 +566,7 @@ func handleRequest(dht *DHT, addr *net.UDPAddr,
 		}
 
 		if dht.IsStandardMode() {
-			dht.peersManager.Insert(infoHash, newPeer(addr.IP, port, token))
+			dht.peersManager.Insert(infoHash, NewPeer(addr.IP, port, token))
 
 			send(dht, addr, makeResponse(t, map[string]interface{}{
 				"id": dht.id(id),
@@ -689,7 +691,7 @@ func handleResponse(dht *DHT, addr *net.UDPAddr,
 		if err := ParseKey(r, "values", "list"); err == nil {
 			values := r["values"].([]interface{})
 			for _, v := range values {
-				p, err := newPeerFromCompactIPPortInfo(v.(string), token)
+				p, err := NewPeerFromCompactIPPortInfo(v.(string), token)
 				if err != nil {
 					continue
 				}

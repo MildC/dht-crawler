@@ -7,6 +7,8 @@ import (
 	"errors"
 	"net"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 var (
@@ -20,6 +22,7 @@ var (
 // DHT represents a DHT node.
 type DHT struct {
 	*Config
+	logger             *zap.Logger
 	node               Node
 	conn               *net.UDPConn
 	routingTable       *routingTable
@@ -34,7 +37,7 @@ type DHT struct {
 
 // New returns a DHT pointer. If config is nil, then config will be set to
 // the default config.
-func New(config *Config) *DHT {
+func New(logger *zap.Logger, config *Config) *DHT {
 	if config == nil {
 		config = NewStandardConfig()
 	}
@@ -45,6 +48,7 @@ func New(config *Config) *DHT {
 	}
 
 	d := &DHT{
+		logger:       logger,
 		Config:       config,
 		node:         node,
 		blackList:    newBlackList(config.BlackListMaxSize),
@@ -109,7 +113,7 @@ func (dht *DHT) join() {
 
 		// NOTE: Temporary node has NOT node id.
 		dht.transactionManager.findNode(
-			NewNode(randomString(20), raddr),
+			NewTempNode(raddr),
 			dht.node.IDRawString(),
 		)
 	}

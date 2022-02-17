@@ -14,7 +14,7 @@ import (
 // randomString generates a size-length string randomly.
 func randomString(size int) string {
 	buff := make([]byte, size)
-	rand.Read(buff)
+	_, _ = rand.Read(buff)
 	return string(buff)
 }
 

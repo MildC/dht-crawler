@@ -2,7 +2,6 @@ package dht
 
 import (
 	"container/heap"
-	"net"
 	"strings"
 	"sync"
 	"time"
@@ -10,39 +9,6 @@ import (
 
 // maxPrefixLength is the length of DHT node.
 const maxPrefixLength = 160
-
-// Peer represents a peer contact.
-type Peer struct {
-	IP    net.IP
-	Port  int
-	token string
-}
-
-// newPeer returns a new peer pointer.
-func newPeer(ip net.IP, port int, token string) *Peer {
-	return &Peer{
-		IP:    ip,
-		Port:  port,
-		token: token,
-	}
-}
-
-// newPeerFromCompactIPPortInfo create a peer pointer by compact ip/port info.
-func newPeerFromCompactIPPortInfo(compactInfo, token string) (*Peer, error) {
-	ip, port, err := decodeCompactIPPortInfo(compactInfo)
-	if err != nil {
-		return nil, err
-	}
-
-	return newPeer(ip, port, token), nil
-}
-
-// CompactIPPortInfo returns "Compact node info".
-// See http://www.bittorrent.org/beps/bep_0005.html.
-func (p *Peer) CompactIPPortInfo() string {
-	info, _ := encodeCompactIPPortInfo(p.IP, p.Port)
-	return info
-}
 
 // peersManager represents a proxy that manipulates peers.
 type peersManager struct {
@@ -60,7 +26,7 @@ func newPeersManager(dht *DHT) *peersManager {
 }
 
 // Insert adds a peer into peersManager.
-func (pm *peersManager) Insert(infoHash string, peer *Peer) {
+func (pm *peersManager) Insert(infoHash string, peer Peer) {
 	pm.Lock()
 	if _, ok := pm.table.Get(infoHash); !ok {
 		pm.table.Set(infoHash, newKeyedDeque())
@@ -77,8 +43,8 @@ func (pm *peersManager) Insert(infoHash string, peer *Peer) {
 }
 
 // GetPeers returns size-length peers who announces having infoHash.
-func (pm *peersManager) GetPeers(infoHash string, size int) []*Peer {
-	peers := make([]*Peer, 0, size)
+func (pm *peersManager) GetPeers(infoHash string, size int) []Peer {
+	peers := make([]Peer, 0, size)
 
 	v, ok := pm.table.Get(infoHash)
 	if !ok {
@@ -86,7 +52,7 @@ func (pm *peersManager) GetPeers(infoHash string, size int) []*Peer {
 	}
 
 	for e := range v.(*keyedDeque).Iter() {
-		peers = append(peers, e.Value.(*Peer))
+		peers = append(peers, e.Value.(Peer))
 	}
 
 	if len(peers) > size {
@@ -366,7 +332,7 @@ func (rt *routingTable) GetNeighbors(id *bitmap, size int) []Node {
 	rt.RLock()
 	nodes := make([]interface{}, 0, rt.cachedNodes.Len())
 	for item := range rt.cachedNodes.Iter() {
-		nodes = append(nodes, item.val.(*Node))
+		nodes = append(nodes, item.val.(Node))
 	}
 	rt.RUnlock()
 

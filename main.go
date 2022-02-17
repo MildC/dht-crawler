@@ -8,24 +8,16 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/MildC/dht-crawler/dht"
+	"github.com/MildC/dht-crawler/torrent"
+	"go.uber.org/zap"
 )
-
-type file struct {
-	Path   []interface{} `json:"path"`
-	Length int           `json:"length"`
-}
-
-type bitTorrent struct {
-	InfoHash string `json:"infohash"`
-	Name     string `json:"name"`
-	Files    []file `json:"files,omitempty"`
-	Length   int    `json:"length,omitempty"`
-}
 
 func main() {
 	go func() {
 		http.ListenAndServe(":6060", nil)
 	}()
+
+	logger, _ := zap.NewDevelopment()
 
 	w := dht.NewWire(65536, 1024, 256)
 	go func() {
@@ -40,18 +32,18 @@ func main() {
 				continue
 			}
 
-			bt := bitTorrent{
+			bt := torrent.BitTorrent{
 				InfoHash: hex.EncodeToString(resp.InfoHash),
 				Name:     info["name"].(string),
 			}
 
 			if v, ok := info["files"]; ok {
 				files := v.([]interface{})
-				bt.Files = make([]file, len(files))
+				bt.Files = make([]torrent.File, len(files))
 
 				for i, item := range files {
 					f := item.(map[string]interface{})
-					bt.Files[i] = file{
+					bt.Files[i] = torrent.File{
 						Path:   f["path"].([]interface{}),
 						Length: f["length"].(int),
 					}
@@ -72,7 +64,7 @@ func main() {
 	config.OnAnnouncePeer = func(infoHash, ip string, port int) {
 		w.Request([]byte(infoHash), ip, port)
 	}
-	d := dht.New(config)
+	d := dht.New(logger, config)
 
 	d.Run()
 }

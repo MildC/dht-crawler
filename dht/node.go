@@ -27,6 +27,10 @@ func NewNode(id string, address *net.UDPAddr) Node {
 	return &node{newBitmapFromString(id), address, time.Now()}
 }
 
+func NewTempNode(address *net.UDPAddr) Node {
+	return &node{address: address, lastActiveTime: time.Now()}
+}
+
 func NewNodeNetworkAddress(id, network, address string) (Node, error) {
 	if len(id) != 20 {
 		return nil, errors.New("node id should be a 20-length string")
@@ -40,7 +44,6 @@ func NewNodeNetworkAddress(id, network, address string) (Node, error) {
 	return &node{newBitmapFromString(id), addr, time.Now()}, nil
 }
 
-// NewNodeFromCompactInfo parses compactNodeInfo and returns a node pointer.
 func NewNodeFromCompactInfo(compactNodeInfo string, network string) (Node, error) {
 	if len(compactNodeInfo) != 26 {
 		return nil, errors.New("compactNodeInfo should be a 26-length string")

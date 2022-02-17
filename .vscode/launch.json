@@ -12,6 +12,15 @@
       "program": "${workspaceFolder}",
       "env": {},
       "args": []
+    },
+    {
+      "name": "Get peer",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/sample/getpeers/getpeers.go",
+      "env": {},
+      "args": []
     }
   ]
 }
