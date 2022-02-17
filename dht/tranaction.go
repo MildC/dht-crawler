@@ -1,7 +1,7 @@
 package dht
 
-// transaction implements transaction.
-type transaction struct {
+// Transaction implements transaction.
+type Transaction struct {
 	*query
 	id       string
 	response chan struct{}

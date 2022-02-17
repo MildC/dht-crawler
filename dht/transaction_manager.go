@@ -41,8 +41,8 @@ func (tm *transactionManager) genTransID() string {
 }
 
 // newTransaction creates a new transaction.
-func (tm *transactionManager) newTransaction(id string, q *query) *transaction {
-	return &transaction{
+func (tm *transactionManager) newTransaction(id string, q *query) *Transaction {
+	return &Transaction{
 		id:       id,
 		query:    q,
 		response: make(chan struct{}, tm.dht.Try+1),
@@ -56,12 +56,12 @@ func (tm *transactionManager) genIndexKey(queryType, address string) string {
 }
 
 // genIndexKeyByTrans generates an indexed key by a transaction.
-func (tm *transactionManager) genIndexKeyByTrans(trans *transaction) string {
+func (tm *transactionManager) genIndexKeyByTrans(trans *Transaction) string {
 	return tm.genIndexKey(trans.data["q"].(string), trans.node.Address().String())
 }
 
 // insert adds a transaction to transactionManager.
-func (tm *transactionManager) insert(trans *transaction) {
+func (tm *transactionManager) insert(trans *Transaction) {
 	tm.Lock()
 	defer tm.Unlock()
 
@@ -79,7 +79,7 @@ func (tm *transactionManager) delete(transID string) {
 	tm.Lock()
 	defer tm.Unlock()
 
-	trans := v.(*transaction)
+	trans := v.(*Transaction)
 	tm.transactions.Delete(trans.id)
 	tm.index.Delete(tm.genIndexKeyByTrans(trans))
 }
@@ -92,7 +92,7 @@ func (tm *transactionManager) len() int {
 // transaction returns a transaction. keyType should be one of 0, 1 which
 // represents transId and index each.
 func (tm *transactionManager) transaction(
-	key string, keyType int) *transaction {
+	key string, keyType int) *Transaction {
 
 	sm := tm.transactions
 	if keyType == 1 {
@@ -104,23 +104,23 @@ func (tm *transactionManager) transaction(
 		return nil
 	}
 
-	return v.(*transaction)
+	return v.(*Transaction)
 }
 
 // getByTransID returns a transaction by transID.
-func (tm *transactionManager) getByTransID(transID string) *transaction {
+func (tm *transactionManager) getByTransID(transID string) *Transaction {
 	return tm.transaction(transID, 0)
 }
 
 // getByIndex returns a transaction by indexed key.
-func (tm *transactionManager) getByIndex(index string) *transaction {
+func (tm *transactionManager) getByIndex(index string) *Transaction {
 	return tm.transaction(index, 1)
 }
 
 // transaction gets the proper transaction with whose id is transId and
 // address is addr.
 func (tm *transactionManager) filterOne(
-	transID string, addr *net.UDPAddr) *transaction {
+	transID string, addr *net.UDPAddr) *Transaction {
 
 	trans := tm.getByTransID(transID)
 	if trans == nil || trans.node.Address().String() != addr.String() {
