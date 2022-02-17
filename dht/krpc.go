@@ -8,13 +8,6 @@ import (
 )
 
 const (
-	pingType         = "ping"
-	findNodeType     = "find_node"
-	getPeersType     = "get_peers"
-	announcePeerType = "announce_peer"
-)
-
-const (
 	generalError = 201 + iota
 	serverError
 	protocolError
@@ -95,39 +88,11 @@ func (tm *tokenManager) check(addr *net.UDPAddr, tokenString string) bool {
 	return ok && tokenString == tk.data
 }
 
-// makeQuery returns a query-formed data.
-func makeQuery(t, q string, a map[string]interface{}) map[string]interface{} {
-	return map[string]interface{}{
-		"t": t,
-		"y": "q",
-		"q": q,
-		"a": a,
-	}
-}
-
-// makeResponse returns a response-formed data.
-func makeResponse(t string, r map[string]interface{}) map[string]interface{} {
-	return map[string]interface{}{
-		"t": t,
-		"y": "r",
-		"r": r,
-	}
-}
-
-// makeError returns a err-formed data.
-func makeError(t string, errCode int, errMsg string) map[string]interface{} {
-	return map[string]interface{}{
-		"t": t,
-		"y": "e",
-		"e": []interface{}{errCode, errMsg},
-	}
-}
-
 // send sends data to the udp.
-func send(dht *DHT, addr *net.UDPAddr, data map[string]interface{}) error {
+func send(dht *DHT, addr *net.UDPAddr, q DHTPayload) error {
 	dht.conn.SetWriteDeadline(time.Now().Add(time.Second * 15))
 
-	_, err := dht.conn.WriteToUDP([]byte(Encode(data)), addr)
+	_, err := dht.conn.WriteToUDP([]byte(Encode(q.ToPayload())), addr)
 	if err != nil {
 		dht.blackList.insert(addr.IP.String(), -1)
 	}
@@ -190,34 +155,26 @@ func parseMessage(data interface{}) (map[string]interface{}, error) {
 }
 
 // handleRequest handles the requests received from udp.
-func handleRequest(dht *DHT, addr *net.UDPAddr,
-	response map[string]interface{}) (success bool) {
+func handleRequest(dht *DHT, addr *net.UDPAddr, payload map[string]interface{}) (success bool) {
+	q := NewDHTQueryFromPayload(payload)
 
-	t := response["t"].(string)
-
-	if err := ParseKeys(
-		response, [][]string{{"q", "string"}, {"a", "map"}}); err != nil {
-
-		send(dht, addr, makeError(t, protocolError, err.Error()))
+	if err := ParseKeys(payload, [][]string{{"q", "string"}, {"a", "map"}}); err != nil {
+		send(dht, addr, NewDHTErrorResponse(q.TransactionID, protocolError, err.Error()))
 		return
 	}
 
-	q := response["q"].(string)
-	a := response["a"].(map[string]interface{})
-
-	if err := ParseKey(a, "id", "string"); err != nil {
-		send(dht, addr, makeError(t, protocolError, err.Error()))
+	if err := ParseKey(q.Arguments, "id", "string"); err != nil {
+		send(dht, addr, NewDHTErrorResponse(q.TransactionID, protocolError, err.Error()))
 		return
 	}
 
-	id := a["id"].(string)
-
+	id := q.Arguments["id"].(string)
 	if id == dht.node.IDRawString() {
 		return
 	}
 
 	if len(id) != 20 {
-		send(dht, addr, makeError(t, protocolError, "invalid id"))
+		send(dht, addr, NewDHTErrorResponse(q.TransactionID, protocolError, "invalid id"))
 		return
 	}
 
@@ -227,25 +184,25 @@ func handleRequest(dht *DHT, addr *net.UDPAddr,
 		dht.blackList.insert(addr.IP.String(), addr.Port)
 		dht.routingTable.RemoveByAddr(addr.String())
 
-		send(dht, addr, makeError(t, protocolError, "invalid id"))
+		send(dht, addr, NewDHTErrorResponse(q.TransactionID, protocolError, "invalid id"))
 		return
 	}
 
-	switch q {
-	case pingType:
-		send(dht, addr, makeResponse(t, map[string]interface{}{
+	switch q.QueryType {
+	case DHTQueryTypePing:
+		send(dht, addr, NewDHTQueryResponse(q.TransactionID, map[string]interface{}{
 			"id": dht.id(id),
 		}))
-	case findNodeType:
+	case DHTQueryTypeFindNode:
 		if dht.IsStandardMode() {
-			if err := ParseKey(a, "target", "string"); err != nil {
-				send(dht, addr, makeError(t, protocolError, err.Error()))
+			if err := ParseKey(q.Arguments, "target", "string"); err != nil {
+				send(dht, addr, NewDHTErrorResponse(q.TransactionID, protocolError, err.Error()))
 				return
 			}
 
-			target := a["target"].(string)
+			target := q.Arguments["target"].(string)
 			if len(target) != 20 {
-				send(dht, addr, makeError(t, protocolError, "invalid target"))
+				send(dht, addr, NewDHTErrorResponse(q.TransactionID, protocolError, "invalid target"))
 				return
 			}
 
@@ -262,26 +219,26 @@ func handleRequest(dht *DHT, addr *net.UDPAddr,
 				)
 			}
 
-			send(dht, addr, makeResponse(t, map[string]interface{}{
+			send(dht, addr, NewDHTQueryResponse(q.TransactionID, map[string]interface{}{
 				"id":    dht.id(target),
 				"nodes": nodes,
 			}))
 		}
-	case getPeersType:
-		if err := ParseKey(a, "info_hash", "string"); err != nil {
-			send(dht, addr, makeError(t, protocolError, err.Error()))
+	case DHTQueryTypeGetPeers:
+		if err := ParseKey(q.Arguments, "info_hash", "string"); err != nil {
+			send(dht, addr, NewDHTErrorResponse(q.TransactionID, protocolError, err.Error()))
 			return
 		}
 
-		infoHash := a["info_hash"].(string)
+		infoHash := q.Arguments["info_hash"].(string)
 
 		if len(infoHash) != 20 {
-			send(dht, addr, makeError(t, protocolError, "invalid info_hash"))
+			send(dht, addr, NewDHTErrorResponse(q.TransactionID, protocolError, "invalid info_hash"))
 			return
 		}
 
 		if dht.IsCrawlMode() {
-			send(dht, addr, makeResponse(t, map[string]interface{}{
+			send(dht, addr, NewDHTQueryResponse(q.TransactionID, map[string]interface{}{
 				"id":    dht.id(infoHash),
 				"token": dht.tokenManager.token(addr),
 				"nodes": "",
@@ -294,13 +251,13 @@ func handleRequest(dht *DHT, addr *net.UDPAddr,
 				values[i] = p.CompactIPPortInfo()
 			}
 
-			send(dht, addr, makeResponse(t, map[string]interface{}{
+			send(dht, addr, NewDHTQueryResponse(q.TransactionID, map[string]interface{}{
 				"id":     dht.id(infoHash),
 				"values": values,
 				"token":  dht.tokenManager.token(addr),
 			}))
 		} else {
-			send(dht, addr, makeResponse(t, map[string]interface{}{
+			send(dht, addr, NewDHTQueryResponse(q.TransactionID, map[string]interface{}{
 				"id":    dht.id(infoHash),
 				"token": dht.tokenManager.token(addr),
 				"nodes": strings.Join(dht.routingTable.GetNeighborCompactInfos(
@@ -311,26 +268,27 @@ func handleRequest(dht *DHT, addr *net.UDPAddr,
 		if dht.OnGetPeers != nil {
 			dht.OnGetPeers(infoHash, addr.IP.String(), addr.Port)
 		}
-	case announcePeerType:
-		if err := ParseKeys(a, [][]string{
+	case DHTQueryTypeAnnouncePeer:
+		if err := ParseKeys(q.Arguments, [][]string{
 			{"info_hash", "string"},
 			{"port", "int"},
-			{"token", "string"}}); err != nil {
+			{"token", "string"},
+		}); err != nil {
 
-			send(dht, addr, makeError(t, protocolError, err.Error()))
+			send(dht, addr, NewDHTErrorResponse(q.TransactionID, protocolError, err.Error()))
 			return
 		}
 
-		infoHash := a["info_hash"].(string)
-		port := a["port"].(int)
-		token := a["token"].(string)
+		infoHash := q.Arguments["info_hash"].(string)
+		port := q.Arguments["port"].(int)
+		token := q.Arguments["token"].(string)
 
 		if !dht.tokenManager.check(addr, token) {
 			//			send(dht, addr, makeError(t, protocolError, "invalid token"))
 			return
 		}
 
-		if impliedPort, ok := a["implied_port"]; ok &&
+		if impliedPort, ok := q.Arguments["implied_port"]; ok &&
 			impliedPort.(int) != 0 {
 
 			port = addr.Port
@@ -339,7 +297,7 @@ func handleRequest(dht *DHT, addr *net.UDPAddr,
 		if dht.IsStandardMode() {
 			dht.peersManager.Insert(infoHash, NewPeer(addr.IP, port, token))
 
-			send(dht, addr, makeResponse(t, map[string]interface{}{
+			send(dht, addr, NewDHTQueryResponse(q.TransactionID, map[string]interface{}{
 				"id": dht.id(id),
 			}))
 		}
@@ -360,9 +318,7 @@ func handleRequest(dht *DHT, addr *net.UDPAddr,
 // findOn puts nodes in the response to the routingTable, then if target is in
 // the nodes or all nodes are in the routingTable, it stops. Otherwise it
 // continues to findNode or getPeers.
-func findOn(dht *DHT, r map[string]interface{}, target *bitmap,
-	queryType string) error {
-
+func findOn(dht *DHT, r map[string]interface{}, target *bitmap, queryType DHTQueryType) error {
 	if err := ParseKey(r, "nodes", "string"); err != nil {
 		return err
 	}
@@ -393,9 +349,9 @@ func findOn(dht *DHT, r map[string]interface{}, target *bitmap,
 	targetID := target.RawString()
 	for _, no := range dht.routingTable.GetNeighbors(target, dht.K) {
 		switch queryType {
-		case findNodeType:
+		case DHTQueryTypeFindNode:
 			dht.transactionManager.findNode(no, targetID)
-		case getPeersType:
+		case DHTQueryTypeGetPeers:
 			dht.transactionManager.getPeers(no, targetID)
 		default:
 			panic("invalid find type")
@@ -405,9 +361,7 @@ func findOn(dht *DHT, r map[string]interface{}, target *bitmap,
 }
 
 // handleResponse handles responses received from udp.
-func handleResponse(dht *DHT, addr *net.UDPAddr,
-	response map[string]interface{}) (success bool) {
-
+func handleResponse(dht *DHT, addr *net.UDPAddr, response map[string]interface{}) (success bool) {
 	t := response["t"].(string)
 
 	trans := dht.transactionManager.filterOne(t, addr)
@@ -420,8 +374,6 @@ func handleResponse(dht *DHT, addr *net.UDPAddr,
 		return
 	}
 
-	q := trans.Data["q"].(string)
-	a := trans.Data["a"].(map[string]interface{})
 	r := response["r"].(map[string]interface{})
 
 	if err := ParseKey(r, "id", "string"); err != nil {
@@ -440,24 +392,24 @@ func handleResponse(dht *DHT, addr *net.UDPAddr,
 
 	node := NewNode(id, addr)
 
-	switch q {
-	case pingType:
-	case findNodeType:
-		if trans.Data["q"].(string) != findNodeType {
+	switch trans.Data.QueryType {
+	case DHTQueryTypePing:
+	case DHTQueryTypeFindNode:
+		if trans.Data.QueryType != DHTQueryTypeFindNode {
 			return
 		}
 
-		target := trans.Data["a"].(map[string]interface{})["target"].(string)
-		if findOn(dht, r, newBitmapFromString(target), findNodeType) != nil {
+		target := trans.Data.Arguments["target"].(string)
+		if findOn(dht, r, newBitmapFromString(target), DHTQueryTypeFindNode) != nil {
 			return
 		}
-	case getPeersType:
+	case DHTQueryTypeGetPeers:
 		if err := ParseKey(r, "token", "string"); err != nil {
 			return
 		}
 
 		token := r["token"].(string)
-		infoHash := a["info_hash"].(string)
+		infoHash := trans.Data.Arguments["info_hash"].(string)
 
 		if err := ParseKey(r, "values", "list"); err == nil {
 			values := r["values"].([]interface{})
@@ -471,11 +423,10 @@ func handleResponse(dht *DHT, addr *net.UDPAddr,
 					dht.OnGetPeersResponse(infoHash, p)
 				}
 			}
-		} else if findOn(
-			dht, r, newBitmapFromString(infoHash), getPeersType) != nil {
+		} else if findOn(dht, r, newBitmapFromString(infoHash), DHTQueryTypeGetPeers) != nil {
 			return
 		}
-	case announcePeerType:
+	case DHTQueryTypeAnnouncePeer:
 	default:
 		return
 	}

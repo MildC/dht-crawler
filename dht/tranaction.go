@@ -7,7 +7,7 @@ import (
 // Query represents the query data included queried node and query-formed data.
 type Query struct {
 	Node Node
-	Data map[string]interface{}
+	Data *DHTQuery
 }
 
 // Transaction implements transaction.

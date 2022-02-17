@@ -2,7 +2,6 @@ package dht
 
 import (
 	"net"
-	"strings"
 	"sync"
 	"time"
 )
@@ -41,13 +40,13 @@ func (tm *transactionManager) genTransID() string {
 
 // genIndexKey generates an indexed key which consists of queryType and
 // address.
-func (tm *transactionManager) genIndexKey(queryType, address string) string {
-	return strings.Join([]string{queryType, address}, ":")
+func (tm *transactionManager) genIndexKey(queryType DHTQueryType, address string) string {
+	return queryType.String() + ":" + address
 }
 
 // genIndexKeyByTrans generates an indexed key by a transaction.
 func (tm *transactionManager) genIndexKeyByTrans(trans *Transaction) string {
-	return tm.genIndexKey(trans.Data["q"].(string), trans.Node.Address().String())
+	return tm.genIndexKey(trans.Data.QueryType, trans.Node.Address().String())
 }
 
 // insert adds a transaction to transactionManager.
@@ -119,8 +118,8 @@ func (tm *transactionManager) filterOne(
 // When timeout, it will retry `try - 1` times, which means it will query
 // `try` times totally.
 func (tm *transactionManager) query(q *Query, try int) {
-	tm.dht.logger.Sugar().Debugf("query %v:%v", q.Node.Address().IP, q.Node.Address().Port)
-	transID := q.Data["t"].(string)
+	// tm.dht.logger.Sugar().Debugf("query %v:%v", q.Node.Address().IP, q.Node.Address().Port)
+	transID := q.Data.TransactionID
 	trans := tm.newTransaction(transID, q)
 
 	tm.insert(trans)
@@ -154,9 +153,7 @@ func (tm *transactionManager) run() {
 }
 
 // sendQuery send query-formed data to the chan.
-func (tm *transactionManager) sendQuery(
-	no Node, queryType string, a map[string]interface{}) {
-
+func (tm *transactionManager) sendQuery(no Node, queryType DHTQueryType, a map[string]interface{}) {
 	// If the target is self, then stop.
 	if no.ID() != nil && no.IDRawString() == tm.dht.node.IDRawString() ||
 		tm.getByIndex(tm.genIndexKey(queryType, no.Address().String())) != nil ||
@@ -164,23 +161,22 @@ func (tm *transactionManager) sendQuery(
 		return
 	}
 
-	data := makeQuery(tm.genTransID(), queryType, a)
 	tm.queryChan <- &Query{
 		Node: no,
-		Data: data,
+		Data: NewDHTQuery(tm.genTransID(), queryType, a),
 	}
 }
 
 // ping sends ping query to the chan.
 func (tm *transactionManager) ping(no Node) {
-	tm.sendQuery(no, pingType, map[string]interface{}{
+	tm.sendQuery(no, DHTQueryTypePing, map[string]interface{}{
 		"id": tm.dht.id(no.IDRawString()),
 	})
 }
 
 // findNode sends find_node query to the chan.
 func (tm *transactionManager) findNode(no Node, target string) {
-	tm.sendQuery(no, findNodeType, map[string]interface{}{
+	tm.sendQuery(no, DHTQueryTypeFindNode, map[string]interface{}{
 		"id":     tm.dht.id(target),
 		"target": target,
 	})
@@ -188,17 +184,15 @@ func (tm *transactionManager) findNode(no Node, target string) {
 
 // getPeers sends get_peers query to the chan.
 func (tm *transactionManager) getPeers(no Node, infoHash string) {
-	tm.sendQuery(no, getPeersType, map[string]interface{}{
+	tm.sendQuery(no, DHTQueryTypeGetPeers, map[string]interface{}{
 		"id":        tm.dht.id(infoHash),
 		"info_hash": infoHash,
 	})
 }
 
 // announcePeer sends announce_peer query to the chan.
-func (tm *transactionManager) announcePeer(
-	no Node, infoHash string, impliedPort, port int, token string) {
-
-	tm.sendQuery(no, announcePeerType, map[string]interface{}{
+func (tm *transactionManager) AnnouncePeer(no Node, infoHash string, impliedPort, port int, token string) {
+	tm.sendQuery(no, DHTQueryTypeAnnouncePeer, map[string]interface{}{
 		"id":           tm.dht.id(no.IDRawString()),
 		"info_hash":    infoHash,
 		"implied_port": impliedPort,
